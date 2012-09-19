@@ -203,50 +203,58 @@ namespace winsw
 
         protected override void OnStart(string[] _)
         {
-            envs = descriptor.EnvironmentVariables;
-            foreach (string key in envs.Keys)
+            try
             {
-                LogEvent("envar " + key + '=' + envs[key]);
-            }
-
-            HandleFileCopies();
-
-            // handle downloads
-            foreach (Download d in descriptor.Downloads)
-            {
-                LogEvent("Downloading: " + d.From+ " to "+d.To);
-                try
+                envs = descriptor.EnvironmentVariables;
+                foreach (string key in envs.Keys)
                 {
-                    d.Perform();
+                    LogEvent("envar " + key + '=' + envs[key]);
+                    WriteEvent("envar " + key + '=' + envs[key]);
                 }
-                catch (Exception e)
+
+                HandleFileCopies();
+
+                // handle downloads
+                foreach (Download d in descriptor.Downloads)
                 {
-                    LogEvent("Failed to download " + d.From + " to " + d.To + "\n" + e.Message);
-                    WriteEvent("Failed to download " + d.From +" to "+d.To, e);
-                    // but just keep going
+                    LogEvent("Downloading: " + d.From + " to " + d.To);
+                    try
+                    {
+                        d.Perform();
+                    }
+                    catch (Exception e)
+                    {
+                        LogEvent("Failed to download " + d.From + " to " + d.To + "\n" + e.Message);
+                        WriteEvent("Failed to download " + d.From + " to " + d.To, e);
+                        // but just keep going
+                    }
                 }
+
+                string startarguments = descriptor.Startarguments;
+
+                if (startarguments == null)
+                {
+                    startarguments = descriptor.Arguments;
+                }
+                else
+                {
+                    startarguments += " " + descriptor.Arguments;
+                }
+
+                LogEvent("Starting " + descriptor.Executable + ' ' + startarguments);
+                WriteEvent("Starting " + descriptor.Executable + ' ' + startarguments);
+
+                StartProcess(process, startarguments, descriptor.Executable);
+
+                // send stdout and stderr to its respective output file.
+                HandleLogfiles();
+
+                process.StandardInput.Close(); // nothing for you to read!
             }
-
-            string startarguments = descriptor.Startarguments;
-
-            if (startarguments == null)
+            catch(Exception ex)
             {
-                startarguments = descriptor.Arguments;
+                WriteEvent("Error starting " + ex + ":" + ex.Message + ":" + ex.StackTrace);
             }
-            else
-            {
-                startarguments += " " + descriptor.Arguments;
-            }
-
-            LogEvent("Starting " + descriptor.Executable + ' ' + startarguments);
-            WriteEvent("Starting " + descriptor.Executable + ' ' + startarguments);
-
-            StartProcess(process, startarguments, descriptor.Executable);
-
-            // send stdout and stderr to its respective output file.
-            HandleLogfiles();
-
-            process.StandardInput.Close(); // nothing for you to read!
         }
 
         protected override void OnShutdown()

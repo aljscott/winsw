@@ -135,7 +135,7 @@ namespace winsw
                 }
                 catch (Exception e)
                 {
-                    WriteEvent("Thread failed unexpectedly",e);
+                    LogEvent("Thread failed unexpectedly",e);
                 }
             }).Start();
         }
@@ -159,14 +159,7 @@ namespace winsw
 
         public void LogEvent(String message)
         {
-            if (systemShuttingdown)
-            {
-                /* NOP - cannot call EventLog because of shutdown. */
-            }
-            else
-            {
-                EventLog.WriteEntry(message);
-            }
+            LogEvent(message, EventLogEntryType.Information);
         }
 
         public void LogEvent(String message, EventLogEntryType type)
@@ -177,21 +170,38 @@ namespace winsw
             }
             else
             {
-                EventLog.WriteEntry(message, type);
+                try
+                {
+                    EventLog.WriteEntry(message, type);
+                }
+                catch (Exception e)
+                {
+                    // ignore logging exceptions
+                }
+
+               
+            }
+            try
+            {
+                WriteEventToLogFile("[" + type.ToString() + "] " + message);
+            }
+            catch (Exception e)
+            {
+                // ignore logging exceptions
             }
         }
 
-        private void WriteEvent(Exception exception)
+        private void LogEvent(Exception exception)
         {
-            WriteEvent(exception.Message + "\nStacktrace:" + exception.StackTrace);
+            LogEvent(exception.Message + "\nStacktrace:" + exception.StackTrace, EventLogEntryType.Error);
         }
 
-        private void WriteEvent(String message, Exception exception)
+        private void LogEvent(String message, Exception exception)
         {
-            WriteEvent(message + "\nMessage:" + exception.Message + "\nStacktrace:" + exception.StackTrace);
+            LogEvent(message + "\nMessage:" + exception.Message + "\nStacktrace:" + exception.StackTrace, EventLogEntryType.Error);
         }
 
-        private void WriteEvent(String message)
+        private void WriteEventToLogFile(String message)
         {
             string logfilename = Path.Combine(descriptor.LogDirectory, descriptor.BaseName + ".wrapper.log");
             StreamWriter log = new StreamWriter(logfilename, true);
@@ -208,8 +218,8 @@ namespace winsw
                 envs = descriptor.EnvironmentVariables;
                 foreach (string key in envs.Keys)
                 {
-                    LogEvent("envar " + key + '=' + envs[key]);
-                    WriteEvent("envar " + key + '=' + envs[key]);
+                    LogEvent("Setting environment variable " + key + '=' + envs[key]);
+                    
                 }
 
                 HandleFileCopies();
@@ -225,7 +235,7 @@ namespace winsw
                     catch (Exception e)
                     {
                         LogEvent("Failed to download " + d.From + " to " + d.To + "\n" + e.Message);
-                        WriteEvent("Failed to download " + d.From + " to " + d.To, e);
+                        
                         // but just keep going
                     }
                 }
@@ -242,7 +252,7 @@ namespace winsw
                 }
 
                 LogEvent("Starting " + descriptor.Executable + ' ' + startarguments);
-                WriteEvent("Starting " + descriptor.Executable + ' ' + startarguments);
+                
 
                 StartProcess(process, startarguments, descriptor.Executable);
 
@@ -253,7 +263,7 @@ namespace winsw
             }
             catch(Exception ex)
             {
-                WriteEvent("Error starting " + ex + ":" + ex.Message + ":" + ex.StackTrace);
+                LogEvent("Error starting " + ex + ":" + ex.Message + ":" + ex.StackTrace);
             }
         }
 
@@ -268,7 +278,7 @@ namespace winsw
             }
             catch (Exception ex)
             {
-                WriteEvent("Shutdown exception", ex);
+                LogEvent("Unexpected Shutdown exception", ex);
             }
         }
 
@@ -282,23 +292,26 @@ namespace winsw
             }
             catch (Exception ex)
             {
-                WriteEvent("Stop exception", ex);
+                LogEvent("Unexpected Stop exception", ex);
             }
         }
 
         private void StopIt()
         {
             string stoparguments = descriptor.Stoparguments;
-            LogEvent("Stopping " + descriptor.Id);
-            WriteEvent("Stopping " + descriptor.Id);
+            LogEvent("Stopping process: " + descriptor.Id);
+            
             orderlyShutdown = true;
 
             if (stoparguments == null)
             {
                 try
                 {
-                    WriteEvent("ProcessKill " + process.Id);
+                    //LogEvent("Killing process: " + process.Id);
                     process.Kill();
+                    LogEvent("Waiting for process to exit: " + process.Id);
+                    WaitForProcessToExit(process);
+                    SignalShutdownComplete();
                 }
                 catch (InvalidOperationException)
                 {
@@ -321,7 +334,7 @@ namespace winsw
 
                 StartProcess(stopProcess, stoparguments, executable);
 
-                WriteEvent("WaitForProcessToExit "+process.Id+"+"+stopProcess.Id);
+                LogEvent("WaitForProcessToExit "+process.Id+"+"+stopProcess.Id);
                 WaitForProcessToExit(process);
                 WaitForProcessToExit(stopProcess);
                 SignalShutdownComplete();
@@ -332,7 +345,7 @@ namespace winsw
                 Console.Beep();
             }
 
-            WriteEvent("Finished " + descriptor.Id);
+            LogEvent("Finished " + descriptor.Id);
         }
 
         private void WaitForProcessToExit(Process process)
@@ -362,7 +375,7 @@ namespace winsw
             IntPtr handle = this.ServiceHandle;
             wrapperServiceStatus.checkPoint++;
             wrapperServiceStatus.waitHint = descriptor.WaitHint;
-//            WriteEvent("SignalShutdownPending " + wrapperServiceStatus.checkPoint + ":" + wrapperServiceStatus.waitHint);
+            LogEvent("Signal Shutdown Pending " + wrapperServiceStatus.checkPoint + ":" + wrapperServiceStatus.waitHint);
             wrapperServiceStatus.currentState = (int)State.SERVICE_STOP_PENDING;
             SetServiceStatus(handle, ref wrapperServiceStatus);
         }
@@ -371,7 +384,7 @@ namespace winsw
         {
             IntPtr handle = this.ServiceHandle;
             wrapperServiceStatus.checkPoint++;
-//            WriteEvent("SignalShutdownComplete " + wrapperServiceStatus.checkPoint + ":" + wrapperServiceStatus.waitHint);
+            LogEvent("Signal Shutdown Complete " + wrapperServiceStatus.checkPoint + ":" + wrapperServiceStatus.waitHint);
             wrapperServiceStatus.currentState = (int)State.SERVICE_STOPPED;
             SetServiceStatus(handle, ref wrapperServiceStatus);
         }
@@ -392,16 +405,18 @@ namespace winsw
                 // ps.EnvironmentVariables[key] = envs[key]; // bugged (lower cases all variable names due to StringDictionary being used, see http://connect.microsoft.com/VisualStudio/feedback/ViewFeedback.aspx?FeedbackID=326163)
 
             process.Start();
-            WriteEvent("Started " + process.Id);
+            LogEvent("Started process: " + process.Id);
 
             // monitor the completion of the process
             StartThread(delegate()
             {
                 string msg = process.Id + " - " + process.StartInfo.FileName + " " + process.StartInfo.Arguments;
-                process.WaitForExit();
+               
 
                 try
                 {
+                    process.WaitForExit();
+
                     if (orderlyShutdown)
                     {
                         LogEvent("Child process [" + msg + "] terminated with " + process.ExitCode, EventLogEntryType.Information);
@@ -414,7 +429,7 @@ namespace winsw
                 }
                 catch (InvalidOperationException ioe)
                 {
-                    LogEvent("WaitForExit " + ioe.Message);
+                    LogEvent("Unexpected Exception in WaitForExit", ioe);
                 }
 
                 try
@@ -423,7 +438,7 @@ namespace winsw
                 }
                 catch (InvalidOperationException ioe)
                 {
-                    LogEvent("Dispose " + ioe.Message);
+                    LogEvent("Unexpected Exception in Dispose", ioe);
                 }
             });
         }

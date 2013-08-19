@@ -19,7 +19,13 @@ namespace winsw
     /// </summary>
     public class ServiceDescriptor
     {
-        private readonly XmlDocument dom = new XmlDocument();
+        private readonly XmlDocument dom = new XmlDocument();       
+
+        public XmlDocument document 
+        {
+            get { return dom; }
+        }
+
 
         /// <summary>
         /// Where did we find the configuration file?
@@ -67,6 +73,11 @@ namespace winsw
             BasePath = Path.Combine(p, BaseName);
 
             dom.Load(BasePath + ".xml");
+        }
+
+        public void Save()
+        {
+            dom.Save(BasePath + ".xml");
         }
 
         private string SingleElement(string tagName)

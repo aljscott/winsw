@@ -502,6 +502,9 @@ namespace winsw
                 args[0] = args[0].ToLower();
                 if (args[0] == "install")
                 {
+                    // setup memory limit
+                    Util.AdjustServiceSettings();
+                    
                     svc.Create(
                         d.Id,
                         d.Caption,
@@ -517,7 +520,7 @@ namespace winsw
                     s.Description = d.Description;
                     s.Commit();
                      */
-
+                  
                     // so using a classic method to set the description. Ugly.
                     Registry.LocalMachine.OpenSubKey("System").OpenSubKey("CurrentControlSet").OpenSubKey("Services")
                         .OpenSubKey(d.Id, true).SetValue("Description", d.Description);
